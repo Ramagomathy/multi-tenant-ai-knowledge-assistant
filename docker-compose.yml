@@ -1,0 +1,40 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: knowledge-assistant-mongodb
+    restart: unless-stopped
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        openssl rand -base64 756 > /tmp/keyfile
+        chown 999:999 /tmp/keyfile
+        chmod 400 /tmp/keyfile
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --wiredTigerCacheSizeGB "0.25" --keyFile /tmp/keyfile
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - -u
+        - ${MONGODB_ROOT_USERNAME}
+        - -p
+        - ${MONGODB_ROOT_PASSWORD}
+        - --authenticationDatabase
+        - admin
+        - --quiet
+        - --eval
+        - "db.adminCommand('ping').ok"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  mongodb_data:

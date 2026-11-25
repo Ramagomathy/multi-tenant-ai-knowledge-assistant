@@ -9,8 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.18",
     "mongoose": "^8.24.11",
     "next": "16.4.6",
+    "pdf-parse": "^2.2.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",

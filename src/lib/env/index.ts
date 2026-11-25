@@ -8,10 +8,16 @@ const envSchema = z.object({
     .default("development"),
 
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+
+  JWT_SECRET: z
+    .string()
+    .min(32, "JWT_SECRET must contain at least 32 characters"),
+
+  APP_ORIGIN: z.string().url("APP_ORIGIN must be a valid URL"),
+  MAX_UPLOAD_SIZE_MB: z.coerce.number().int().min(1).max(50).default(10),
 });
 
 function validateEnv() {
-  console.log("accessed uri")
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {

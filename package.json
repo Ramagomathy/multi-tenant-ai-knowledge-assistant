@@ -6,10 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "worker:ingestion": "tsx scripts/ingestion-worker.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "dotenv": "^18.0.10",
     "jose": "^6.2.18",
     "mongoose": "^8.24.11",
     "next": "16.4.6",
@@ -27,6 +29,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

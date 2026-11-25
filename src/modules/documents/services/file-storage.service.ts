@@ -69,3 +69,24 @@ export async function deleteStoredFile(storageId: string) {
     await gridFS.delete(id);
   }
 }
+
+export async function readStoredFile(storageId: string): Promise<Buffer> {
+  const gridFS = await getBucket();
+  const id = new ObjectId(storageId);
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+
+    const stream = gridFS.openDownloadStream(id);
+
+    stream.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    stream.on("error", reject);
+
+    stream.on("end", () => {
+      resolve(Buffer.concat(chunks));
+    });
+  });
+}

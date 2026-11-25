@@ -15,6 +15,9 @@ const envSchema = z.object({
 
   APP_ORIGIN: z.string().url("APP_ORIGIN must be a valid URL"),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().int().min(1).max(50).default(10),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().min(128).max(3072).default(768),
 });
 
 function validateEnv() {

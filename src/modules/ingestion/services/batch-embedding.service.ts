@@ -1,4 +1,4 @@
-import "server-only";
+// import "server-only";
 
 import type { TextChunk } from "./chunking.service";
 import { getEmbeddingProvider } from "./embedding-provider.service";

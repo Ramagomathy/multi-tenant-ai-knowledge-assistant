@@ -1,4 +1,4 @@
-import "server-only";
+// import "server-only";
 
 import type { EmbeddingProvider } from "../types/embedding.types";
 import { GeminiEmbeddingProvider } from "./gemini-embedding.service";

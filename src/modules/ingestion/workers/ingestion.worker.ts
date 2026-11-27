@@ -1,5 +1,4 @@
-import "server-only";
-
+// import "server-only";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 
@@ -14,6 +13,7 @@ import { readStoredFile } from "@/modules/documents/services/file-storage.servic
 import { extractDocumentText } from "../services/text-extraction.service";
 import { chunkText } from "../services/chunking.service";
 import { embedChunks } from "../services/batch-embedding.service";
+import Organization from "@/modules/organizations/models/Organization";
 
 const WORKER_ID = randomUUID();
 const POLL_INTERVAL_MS = 2000;
@@ -184,6 +184,10 @@ async function processJob(job: InstanceType<typeof IngestionJob>) {
                 },
                 { session }
             );
+            await Organization.updateOne(
+  { _id: job.organizationId },
+  { $inc: { knowledgeVersion: 1 } }
+);
 
             await IngestionJob.updateOne(
                 {

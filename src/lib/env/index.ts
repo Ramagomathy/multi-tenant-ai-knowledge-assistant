@@ -1,4 +1,4 @@
-import "server-only";
+// import "server-only";
 
 import { z } from "zod";
 
@@ -18,6 +18,7 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
   EMBEDDING_DIMENSIONS: z.coerce.number().int().min(128).max(3072).default(768),
+  GEMINI_CHAT_MODEL: z.string().default("gemini-3.8-flash"),
 });
 
 function validateEnv() {

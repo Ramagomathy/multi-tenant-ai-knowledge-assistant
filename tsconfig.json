@@ -21,7 +21,8 @@
     "paths": {
       "@/*": ["./*"],
       "@/lib/*": ["./src/lib/*"],
-      "@/modules/*": ["./src/modules/*"]
+      "@/modules/*": ["./src/modules/*"],
+      "@/components/*": ["./src/components/*"]
 }
   },
   "include": [

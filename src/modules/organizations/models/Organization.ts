@@ -1,4 +1,4 @@
-import "server-only";
+// import "server-only";
 
 import mongoose, { Schema } from "mongoose";
 
@@ -25,6 +25,18 @@ const OrganizationSchema = new Schema(
       default: "active",
       required: true,
     },
+
+    monthlyTokenLimit: {
+      type: Number,
+      default: 100000,
+      min: 0,
+    },
+
+    knowledgeVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,
@@ -34,3 +46,5 @@ const OrganizationSchema = new Schema(
 export const Organization =
   mongoose.models.Organization ||
   mongoose.model("Organization", OrganizationSchema);
+
+export default Organization;

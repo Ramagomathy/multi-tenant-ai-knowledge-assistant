@@ -1,7 +1,6 @@
 // import "server-only";
 
-import pdfParse from "pdf-parse";
-
+import { PDFParse } from "pdf-parse";
 import { AppError } from "@/lib/errors";
 
 interface ExtractionResult {
@@ -21,59 +20,36 @@ export async function extractDocumentText(
 
   try {
     if (mimeType === "application/pdf") {
-      const result = await pdfParse(buffer);
-
-      text = result.text;
-      pageCount = result.numpages;
-    } else if (
-      mimeType === "text/plain" ||
-      mimeType === "text/markdown"
-    ) {
-      text = new TextDecoder("utf-8", {
-        fatal: true,
-      }).decode(buffer);
+      const parser = new PDFParse({ data: buffer });
+      try {
+        const [textResult, infoResult] = await Promise.all([
+          parser.getText(),
+          parser.getInfo({ parsePageInfo: true }),
+        ]);
+        text = textResult.text;
+        pageCount = infoResult.total;
+      } finally {
+        await parser.destroy();
+      }
+    } else if (mimeType === "text/plain" || mimeType === "text/markdown") {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
     } else {
-      throw new AppError(
-        "Unsupported document format",
-        415,
-        "UNSUPPORTED_DOCUMENT_FORMAT"
-      );
+      throw new AppError("Unsupported document format", 415, "UNSUPPORTED_DOCUMENT_FORMAT");
     }
   } catch (error) {
-    if (error instanceof AppError) {
-      throw error;
-    }
-
-    throw new AppError(
-      "Unable to extract text from this document",
-      422,
-      "DOCUMENT_EXTRACTION_FAILED"
-    );
+    if (error instanceof AppError) throw error;
+    throw new AppError("Unable to extract text from this document", 422, "DOCUMENT_EXTRACTION_FAILED");
   }
 
   const normalizedText = normalizeExtractedText(text);
-
   if (!normalizedText.trim()) {
-    throw new AppError(
-      "This document does not contain extractable text",
-      422,
-      "EMPTY_EXTRACTED_TEXT"
-    );
+    throw new AppError("This document does not contain extractable text", 422, "EMPTY_EXTRACTED_TEXT");
   }
-
   if (normalizedText.length > MAX_EXTRACTED_CHARACTERS) {
-    throw new AppError(
-      "Extracted document content exceeds the allowed limit",
-      413,
-      "EXTRACTED_TEXT_TOO_LARGE"
-    );
+    throw new AppError("Extracted document content exceeds the allowed limit", 413, "EXTRACTED_TEXT_TOO_LARGE");
   }
 
-  return {
-    text: normalizedText,
-    pageCount,
-    characterCount: normalizedText.length,
-  };
+  return { text: normalizedText, pageCount, characterCount: normalizedText.length };
 }
 
 function normalizeExtractedText(text: string): string {

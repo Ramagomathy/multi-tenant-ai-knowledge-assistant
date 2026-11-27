@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/modules/auth/utils/auth";
 import { validateRequestOrigin } from "@/lib/security/csrf";
 import { handleApiError } from "@/lib/errors";
+import { toObjectId } from "@/lib/mongodb/object-id";
 
 import { chatSchema } from "@/modules/chat/schemas/chat.schema";
 import { prepareChat } from "@/modules/chat/services/chat.service";
@@ -61,19 +62,14 @@ function createSSEStream({
         }
       };
 
-      let fullText = "";
-
       try {
         send("meta", { conversationId, assistantMessageId });
         send("citations", { citations });
 
         for await (const item of stream) {
-          if (signal.aborted) {
-            throw new Error("CANCELLED");
-          }
+          if (signal.aborted) throw new Error("CANCELLED");
 
           if (item.type === "text") {
-            fullText += item.text;
             send("token", { text: item.text });
           } else if (item.type === "usage") {
             send("usage", {
@@ -84,18 +80,14 @@ function createSSEStream({
           }
         }
 
-        void fullText;
-
         send("done", { conversationId, assistantMessageId });
-      }  catch (error) {
-  console.error("[CHAT SSE ERROR]", error);
+      } catch (error) {
+        console.error("[CHAT SSE ERROR]", error);
 
-  if (!signal.aborted) {
-    send("error", {
-      message: "Unable to complete the response.",
-    });
-  }
-} finally {
+        if (!signal.aborted) {
+          send("error", { message: "Unable to complete the response." });
+        }
+      } finally {
         onCleanup?.();
         if (!isClosed) {
           isClosed = true;
@@ -125,38 +117,28 @@ export async function POST(request: NextRequest) {
   let stage = "request-start";
 
   try {
-    console.log("[CHAT] 1. Request received");
     stage = "csrf-validation";
     validateRequestOrigin(request);
-    console.log("[CHAT] 2. Origin validated");
 
     stage = "authentication";
     const auth = await requireAuth();
-    console.log("[CHAT] 3. Authentication successful");
 
     stage = "request-body";
     const body = await request.json();
-    console.log("[CHAT] 4. Request body parsed");
-
-    stage = "request-validation";
     const input = chatSchema.parse(body);
-    console.log("[CHAT] 5. Schema validation successful");
 
     stage = "chat-rate-limit";
     const rateLimit = await consumeChatRateLimit({
-      organizationId: String(auth.organizationId),
-      userId: String(auth.userId),
+      organizationId: auth.organizationId,
+      userId: auth.userId,
     });
-    console.log("[CHAT] 6. Rate limit checked", rateLimit);
 
     if (!rateLimit.allowed) {
       return Response.json(
         { error: "Too many chat requests" },
         {
           status: 429,
-          headers: {
-            "Retry-After": getRetryAfterSeconds(rateLimit.resetAt),
-          },
+          headers: { "Retry-After": getRetryAfterSeconds(rateLimit.resetAt) },
         }
       );
     }
@@ -171,18 +153,14 @@ export async function POST(request: NextRequest) {
     };
 
     stage = "prepare-chat";
-    console.log("[CHAT] 7. Calling prepareChat");
-
     const execution = await prepareChat({
-      organizationId: auth.organizationId,
-      userId: auth.userId,
+      organizationId: toObjectId(auth.organizationId),
+      userId: toObjectId(auth.userId),
       conversationId: input.conversationId,
       requestId: input.requestId,
       message: input.message,
       signal: abortController.signal,
     });
-
-    console.log("[CHAT] 8. prepareChat completed");
 
     stage = "create-sse-stream";
     const stream = createSSEStream({
@@ -195,24 +173,12 @@ export async function POST(request: NextRequest) {
       onCleanup: cleanupAbortListener,
     });
 
-    stage = "return-response";
-    console.log("[CHAT] 9. Returning SSE response");
-
-    return new Response(stream, {
-      status: 200,
-      headers: SSE_HEADERS,
-    });
+    return new Response(stream, { status: 200, headers: SSE_HEADERS });
   } catch (error) {
-    console.error("[CHAT API ERROR]", {
-      stage,
-      error,
-    });
+    console.error("[CHAT API ERROR]", { stage, error });
 
     if (error instanceof Error && error.message === "CONVERSATION_NOT_FOUND") {
-      return Response.json(
-        { error: "Conversation not found" },
-        { status: 404 }
-      );
+      return Response.json({ error: "Conversation not found" }, { status: 404 });
     }
 
     return handleApiError(error);

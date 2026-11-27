@@ -33,15 +33,15 @@ export async function listConversations(params: {
 }
 
 export async function getConversation(params: {
-  conversationId: string;
+  conversationId: Types.ObjectId;
   organizationId: Types.ObjectId;
   userId: Types.ObjectId;
 }) {
-  const conversation = await Conversation.findOne({
+  const conversation = (await Conversation.findOne({
     _id: params.conversationId,
     organizationId: params.organizationId,
     userId: params.userId,
-  }).lean();
+  }).lean()) as { _id: Types.ObjectId } | null;
 
   if (!conversation) return null;
 
@@ -58,7 +58,7 @@ export async function getConversation(params: {
 }
 
 export async function deleteConversation(params: {
-  conversationId: string;
+  conversationId: Types.ObjectId;
   organizationId: Types.ObjectId;
   userId: Types.ObjectId;
 }) {
@@ -75,9 +75,7 @@ export async function deleteConversation(params: {
         { session }
       );
 
-      if (!conversation) {
-        throw new Error("CONVERSATION_NOT_FOUND");
-      }
+      if (!conversation) throw new Error("CONVERSATION_NOT_FOUND");
 
       await Message.deleteMany(
         {
@@ -88,7 +86,6 @@ export async function deleteConversation(params: {
         { session }
       );
     });
-
     return true;
   } finally {
     await session.endSession();

@@ -4,45 +4,46 @@ import { createHash } from "crypto";
 import { Types } from "mongoose";
 
 import Organization from "@/modules/organizations/models/Organization";
-
 import AnswerCache from "../models/AnswerCache";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function createCacheKey(question: string) {
-  const normalized = question
-    .normalize("NFKC")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
+type CachedCitation = {
+  citationId: string;
+  documentId: Types.ObjectId;
+  chunkId: Types.ObjectId;
+  documentName: string;
+  chunkIndex: number;
+};
+export type CachedAnswer = { answer: string; citations: CachedCitation[] };
 
-  return createHash("sha256")
-    .update(normalized)
-    .digest("hex");
+function createCacheKey(question: string) {
+  const normalized = question.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+async function getKnowledgeVersion(organizationId: Types.ObjectId): Promise<number> {
+  const organization = (await Organization.findById(organizationId)
+    .select("knowledgeVersion")
+    .lean()) as { knowledgeVersion?: number } | null;
+
+  if (!organization) throw new Error("ORGANIZATION_NOT_FOUND");
+  return organization.knowledgeVersion ?? 0;
 }
 
 export async function getCachedAnswer(params: {
   organizationId: Types.ObjectId;
   question: string;
-}) {
-  const organization = await Organization.findById(
-    params.organizationId
-  )
-    .select("knowledgeVersion")
-    .lean();
-
-  if (!organization) {
-    throw new Error("ORGANIZATION_NOT_FOUND");
-  }
-
+}): Promise<CachedAnswer | null> {
+  const knowledgeVersion = await getKnowledgeVersion(params.organizationId);
   const cacheKey = createCacheKey(params.question);
-
-  return AnswerCache.findOne({
+  const cached = (await AnswerCache.findOne({
     organizationId: params.organizationId,
-    knowledgeVersion: organization.knowledgeVersion ?? 0,
+    knowledgeVersion,
     cacheKey,
     expiresAt: { $gt: new Date() },
-  }).lean();
+  }).lean()) as CachedAnswer | null;
+  return cached;
 }
 
 export async function saveCachedAnswer(params: {
@@ -52,22 +53,17 @@ export async function saveCachedAnswer(params: {
   citations: unknown[];
   model: string;
 }) {
-  const organization = await Organization.findById(
-    params.organizationId
-  )
-    .select("knowledgeVersion")
-    .lean();
-
-  if (!organization) return;
+  let knowledgeVersion: number;
+  try {
+    knowledgeVersion = await getKnowledgeVersion(params.organizationId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "ORGANIZATION_NOT_FOUND") return;
+    throw error;
+  }
 
   const cacheKey = createCacheKey(params.question);
-
   await AnswerCache.updateOne(
-    {
-      organizationId: params.organizationId,
-      knowledgeVersion: organization.knowledgeVersion ?? 0,
-      cacheKey,
-    },
+    { organizationId: params.organizationId, knowledgeVersion, cacheKey },
     {
       $set: {
         question: params.question,

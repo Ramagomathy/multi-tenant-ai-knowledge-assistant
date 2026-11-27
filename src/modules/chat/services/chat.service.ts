@@ -7,27 +7,22 @@ import Conversation from "../models/Conversation";
 
 import { getChatProvider } from "./chat-provider.service";
 import { retrieveDocuments } from "@/modules/retrieval/services/retrieval.service";
-
 import {
   buildChatPrompt,
   buildCitationList,
   hasSufficientEvidence,
   sanitizeCitationMarkers,
 } from "./chat-prompt.service";
-
 import type { ChatStreamEvent } from "../providers/chat-provider.types";
-
 import {
   reserveQuota,
   settleQuota,
   cancelQuota,
 } from "@/modules/usage/services/quota.service";
-
 import {
   getCachedAnswer,
   saveCachedAnswer,
 } from "@/modules/usage/services/usage-cache.service";
-
 import { env } from "@/lib/env";
 
 const MAX_HISTORY_MESSAGES = 8;
@@ -59,10 +54,7 @@ export async function prepareChat(params: {
       organizationId: params.organizationId,
       userId: params.userId,
     });
-
-    if (!conversation) {
-      throw new Error("CONVERSATION_NOT_FOUND");
-    }
+    if (!conversation) throw new Error("CONVERSATION_NOT_FOUND");
   } else {
     conversation = await Conversation.create({
       organizationId: params.organizationId,
@@ -84,27 +76,16 @@ export async function prepareChat(params: {
     .select("role content")
     .lean();
 
-  // Reverse to restore chronological order.
   const orderedHistory = history.reverse();
-
   let remainingHistoryChars = MAX_HISTORY_CHARS;
+  const limitedHistory: Array<{ role: string; content: string }> = [];
 
-  const limitedHistory = [];
-
-  for (const message of history) {
+  for (const message of orderedHistory) {
     if (remainingHistoryChars <= 0) break;
-
     const content = message.content.slice(0, remainingHistoryChars);
-
     remainingHistoryChars -= content.length;
-
-    limitedHistory.push({
-      role: message.role,
-      content,
-    });
+    limitedHistory.push({ role: message.role, content });
   }
-
-  limitedHistory.reverse();
 
   const cached = await getCachedAnswer({
     organizationId: params.organizationId,
@@ -112,6 +93,8 @@ export async function prepareChat(params: {
   });
 
   if (cached) {
+    const cachedAnswer = cached.answer;
+    const cachedCitations = cached.citations as ReturnType<typeof buildCitationList>;
     const userMessage = await Message.create({
       conversationId: conversation._id,
       organizationId: params.organizationId,
@@ -120,20 +103,15 @@ export async function prepareChat(params: {
       content: params.message,
       status: "completed",
     });
-
     const assistantMessage = await Message.create({
       conversationId: conversation._id,
       organizationId: params.organizationId,
       userId: params.userId,
       role: "assistant",
-      content: cached.answer,
+      content: cachedAnswer,
       status: "completed",
-      citations: cached.citations,
-      tokenUsage: {
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-      },
+      citations: cachedCitations,
+      tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     });
 
     await Conversation.updateOne(
@@ -145,23 +123,16 @@ export async function prepareChat(params: {
       { $set: { lastMessageAt: new Date() } }
     );
 
-    async function* cachedStream() {
-      yield { type: "text" as const, text: cached.answer };
-      yield { type: "final" as const, text: cached.answer };
-
-      yield {
-        type: "usage" as const,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-      };
+    async function* cachedStream(): AsyncGenerator<ChatStreamEvent> {
+      yield { type: "text", text: cachedAnswer };
+      yield { type: "usage", inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     return {
       conversationId: conversation._id,
       userMessageId: userMessage._id,
       assistantMessageId: assistantMessage._id,
-      citations: cached.citations,
+      citations: cachedCitations,
       stream: cachedStream(),
     };
   }
@@ -172,18 +143,12 @@ export async function prepareChat(params: {
     topK: 6,
   });
 
-  // Never send the entire retrieval result to the model.
   let remainingContextChars = MAX_CONTEXT_CHARS;
-
   const sources = retrieval.results
     .map((result) => {
       const content = result.content.slice(0, remainingContextChars);
       remainingContextChars -= content.length;
-
-      return {
-        ...result,
-        content,
-      };
+      return { ...result, content };
     })
     .filter((result) => result.content.length > 0);
 
@@ -195,9 +160,7 @@ export async function prepareChat(params: {
     content: params.message,
     status: "completed",
   });
-
   const citations = buildCitationList(sources);
-
   const assistantMessage = await Message.create({
     conversationId: conversation._id,
     organizationId: params.organizationId,
@@ -215,28 +178,13 @@ export async function prepareChat(params: {
 
   if (!hasSufficientEvidence(sources)) {
     async function* abstentionStream(): AsyncGenerator<ChatStreamEvent> {
-      const answer =
-        "I couldn't find sufficient information in the available documents.";
-
+      const answer = "I couldn't find sufficient information in the available documents.";
       await Message.updateOne(
         { _id: assistantMessage._id },
-        {
-          $set: {
-            content: answer,
-            status: "completed",
-          },
-        }
+        { $set: { content: answer, status: "completed" } }
       );
-
       yield { type: "text", text: answer };
-      yield { type: "final", text: answer };
-
-      yield {
-        type: "usage",
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-      };
+      yield { type: "usage", inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     return {
@@ -248,18 +196,11 @@ export async function prepareChat(params: {
     };
   }
 
-  const prompt = buildChatPrompt({
-    question: params.message,
-    history: limitedHistory,
-    sources,
-  });
-
+  const prompt = buildChatPrompt({ question: params.message, history: limitedHistory, sources });
   const estimatedTokens =
-    Math.ceil((prompt.systemInstruction.length + prompt.input.length) / 4) +
-    1200;
+    Math.ceil((prompt.systemInstruction.length + prompt.input.length) / 4) + 1200;
 
-  let reservation;
-
+  let reservation: Awaited<ReturnType<typeof reserveQuota>>;
   try {
     reservation = await reserveQuota({
       organizationId: params.organizationId,
@@ -280,7 +221,6 @@ export async function prepareChat(params: {
         },
       }
     );
-
     throw error;
   }
 
@@ -288,11 +228,7 @@ export async function prepareChat(params: {
 
   async function* generate(): AsyncGenerator<ChatStreamEvent> {
     let fullResponse = "";
-    let usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     let reservationProcessed = false;
 
     try {
@@ -303,7 +239,6 @@ export async function prepareChat(params: {
       })) {
         if (event.type === "text") {
           fullResponse += event.text;
-
           yield event;
         } else {
           usage = {
@@ -311,23 +246,17 @@ export async function prepareChat(params: {
             outputTokens: event.outputTokens,
             totalTokens: event.totalTokens,
           };
-
           yield event;
         }
       }
 
       const validIds = citations.map((citation) => citation.citationId);
-
       fullResponse = sanitizeCitationMarkers(fullResponse, validIds);
-
       const actualTokens =
         usage.totalTokens > 0
           ? usage.totalTokens
           : Math.ceil(
-              (prompt.systemInstruction.length +
-                prompt.input.length +
-                fullResponse.length) /
-                4
+              (prompt.systemInstruction.length + prompt.input.length + fullResponse.length) / 4
             );
 
       await settleQuota({
@@ -336,7 +265,6 @@ export async function prepareChat(params: {
         userId: params.userId,
         actualTokens,
       });
-
       reservationProcessed = true;
 
       await Message.updateOne(
@@ -345,13 +273,7 @@ export async function prepareChat(params: {
           organizationId: params.organizationId,
           userId: params.userId,
         },
-        {
-          $set: {
-            content: fullResponse,
-            status: "completed",
-            tokenUsage: usage,
-          },
-        }
+        { $set: { content: fullResponse, status: "completed", tokenUsage: usage } }
       );
 
       if (fullResponse.trim()) {
@@ -365,16 +287,14 @@ export async function prepareChat(params: {
       }
     } catch (error) {
       console.error("[CHAT GENERATION ERROR]", {
-  message: error instanceof Error ? error.message : String(error),
-  stack: error instanceof Error ? error.stack : undefined,
-});
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       const aborted = params.signal.aborted;
 
       if (!reservationProcessed) {
         try {
           if (fullResponse.trim()) {
-            // If generation started but usage metadata was not received,
-            // conservatively charge the reserved estimate.
             await settleQuota({
               reservationId: reservation._id,
               organizationId: params.organizationId,
@@ -388,11 +308,9 @@ export async function prepareChat(params: {
               userId: params.userId,
             });
           }
-
           reservationProcessed = true;
-        } catch (quotaError) {
-          // Preserve the original generation error.
-          // Log this for reconciliation.
+        } catch {
+          // Preserve the original generation error; quota can be reconciled later.
         }
       }
 
@@ -411,7 +329,6 @@ export async function prepareChat(params: {
           },
         }
       );
-
       throw error;
     }
   }

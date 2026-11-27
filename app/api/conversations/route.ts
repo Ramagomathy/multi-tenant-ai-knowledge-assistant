@@ -9,7 +9,7 @@ import {
   listConversations,
 } from "@/modules/chat/services/conversation.service";
 
-import { createConversationSchema } from "@/modules/chat/schemas/chat.schema";
+import { chatSchema } from "@/modules/chat/schemas/chat.schema";
 
 export async function GET() {
   try {

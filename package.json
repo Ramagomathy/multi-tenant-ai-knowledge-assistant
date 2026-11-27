@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^18.0.10",
     "jose": "^6.2.18",
@@ -22,15 +25,12 @@
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",
     "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^20.19.43",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
-    "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "tsx": "^4.23.15"
   }
 }

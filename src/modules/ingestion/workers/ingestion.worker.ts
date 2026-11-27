@@ -18,6 +18,7 @@ import Organization from "@/modules/organizations/models/Organization";
 const WORKER_ID = randomUUID();
 const POLL_INTERVAL_MS = 2000;
 const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_BATCH_SIZE = 5;
 
 let stopping = false;
 
@@ -91,6 +92,7 @@ async function recoverStaleJobs() {
 
 async function claimJob() {
     const now = new Date();
+    const leaseId = randomUUID();
 
     return IngestionJob.findOneAndUpdate(
         {
@@ -102,7 +104,7 @@ async function claimJob() {
             $set: {
                 status: "processing",
                 lockedAt: now,
-                lockedBy: WORKER_ID,
+                lockedBy: leaseId,
             },
             $inc: { attempts: 1 },
         },
@@ -146,7 +148,7 @@ async function processJob(job: InstanceType<typeof IngestionJob>) {
             const currentJob = await IngestionJob.findOne({
                 _id: job._id,
                 status: "processing",
-                lockedBy: WORKER_ID,
+                lockedBy: job.lockedBy,
             }).session(session);
 
             if (!currentJob) {
@@ -193,7 +195,7 @@ async function processJob(job: InstanceType<typeof IngestionJob>) {
                 {
                     _id: job._id,
                     status: "processing",
-                    lockedBy: WORKER_ID,
+                    lockedBy: job.lockedBy,
                 },
                 {
                     $set: {
@@ -218,7 +220,7 @@ async function processJob(job: InstanceType<typeof IngestionJob>) {
     });
 }
 
-async function handleJob(job: InstanceType<typeof IngestionJob>) {
+async function handleJob(job: InstanceType<typeof IngestionJob>): Promise<boolean> {
     try {
         await Document.updateOne(
             {
@@ -229,6 +231,7 @@ async function handleJob(job: InstanceType<typeof IngestionJob>) {
         );
 
         await processJob(job);
+        return true;
     } catch (error) {
         const message =
             error instanceof Error ? error.message : "Unknown ingestion error";
@@ -254,7 +257,7 @@ async function handleJob(job: InstanceType<typeof IngestionJob>) {
                     {
                         _id: job._id,
                         status: "processing",
-                        lockedBy: WORKER_ID,
+                        lockedBy: job.lockedBy,
                     },
                     {
                         $set: {
@@ -279,7 +282,33 @@ async function handleJob(job: InstanceType<typeof IngestionJob>) {
         } finally {
             await session.endSession();
         }
+        return false;
     }
+}
+
+export async function runIngestionBatch(batchSize = 3) {
+    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
+        throw new Error(`Ingestion batch size must be between 1 and ${MAX_BATCH_SIZE}`);
+    }
+
+    await connectToDatabase();
+    await recoverStaleJobs();
+
+    let completed = 0;
+    let failed = 0;
+
+    for (let index = 0; index < batchSize; index++) {
+        const job = await claimJob();
+        if (!job) break;
+
+        if (await handleJob(job)) {
+            completed++;
+        } else {
+            failed++;
+        }
+    }
+
+    return { completed, failed };
 }
 
 export async function startIngestionWorker() {

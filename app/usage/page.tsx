@@ -7,11 +7,16 @@ import AppShell from "@/components/app-shell";
 import { apiRequest } from "@/lib/client/api";
 
 type Usage = {
-  limit: number;
-  used: number;
-  reserved: number;
-  remaining: number;
+  monthlyLimitTokens: number;
+  usedTokens: number;
+  reservedTokens: number;
+  remainingTokens: number;
   periodKey: string;
+};
+
+type UsageResponse = {
+  success: boolean;
+  data: Usage;
 };
 
 export default function UsagePage() {
@@ -19,14 +24,14 @@ export default function UsagePage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiRequest<Usage>("/api/usage")
-      .then(setUsage)
+    apiRequest<UsageResponse>("/api/usage")
+      .then((response) => setUsage(response.data))
       .catch((err) => setError(err.message));
   }, []);
 
   const percent =
-    usage && usage.limit > 0
-      ? Math.min(100, (usage.used / usage.limit) * 100)
+    usage && usage.monthlyLimitTokens > 0
+      ? Math.min(100, (usage.usedTokens / usage.monthlyLimitTokens) * 100)
       : 0;
 
   return (
@@ -34,7 +39,7 @@ export default function UsagePage() {
       <div className="page-heading">
         <div>
           <h1>Usage & Quota</h1>
-          <p>Monitor your organization's monthly token consumption.</p>
+          <p>Monitor your organization&apos;s monthly token consumption.</p>
         </div>
       </div>
 
@@ -46,22 +51,22 @@ export default function UsagePage() {
             <Stat
               icon={<Gauge size={19} />}
               label="Monthly limit"
-              value={usage.limit}
+              value={usage.monthlyLimitTokens}
             />
             <Stat
               icon={<Zap size={19} />}
               label="Tokens used"
-              value={usage.used}
+              value={usage.usedTokens}
             />
             <Stat
               icon={<Activity size={19} />}
               label="Reserved tokens"
-              value={usage.reserved}
+              value={usage.reservedTokens}
             />
             <Stat
               icon={<ShieldCheck size={19} />}
               label="Remaining tokens"
-              value={usage.remaining}
+              value={usage.remainingTokens}
             />
           </div>
 
@@ -75,7 +80,8 @@ export default function UsagePage() {
                 </div>
               </div>
               <strong>
-                {usage.used.toLocaleString()} / {usage.limit.toLocaleString()}
+                {usage.usedTokens.toLocaleString()} /{" "}
+                {usage.monthlyLimitTokens.toLocaleString()}
               </strong>
             </div>
 

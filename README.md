@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Scheduled ingestion
+
+Set `INGESTION_CRON_SECRET` in the deployment environment to a random secret of
+at least 32 characters. A scheduler can trigger one bounded ingestion batch by
+sending a `POST` request to `/api/internal/igestion/run` with the header
+`Authorization: Bearer <INGESTION_CRON_SECRET>`. Each request processes at most
+three queued jobs and returns only `{ "completed": number, "failed": number }`.
+Job claiming is atomic, so concurrent requests or the background worker cannot
+claim the same queued job.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

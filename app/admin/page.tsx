@@ -7,19 +7,24 @@ import AppShell from "@/components/app-shell";
 import { apiRequest } from "@/lib/client/api";
 
 type Usage = {
-  limit: number;
-  used: number;
-  reserved: number;
-  remaining: number;
+  monthlyLimitTokens: number;
+  usedTokens: number;
+  reservedTokens: number;
+  remainingTokens: number;
+};
+
+type ApiResponse<T> = {
+  success: boolean;
+  data: T;
 };
 
 type DocumentItem = {
-  _id: string;
+  id: string;
   status: string;
 };
 
 type Member = {
-  _id: string;
+  id: string;
 };
 
 export default function AdminPage() {
@@ -31,17 +36,19 @@ export default function AdminPage() {
 
   useEffect(() => {
     Promise.all([
-      apiRequest<Usage>("/api/usage"),
-      apiRequest<{ documents: DocumentItem[] }>("/api/documents"),
-      apiRequest<{ members: Member[] }>("/api/organization/members"),
+      apiRequest<ApiResponse<Usage>>("/api/usage"),
+      apiRequest<ApiResponse<{ documents: DocumentItem[] }>>("/api/documents"),
+      apiRequest<ApiResponse<{ members: Member[] }>>(
+        "/api/organization/members",
+      ),
     ])
-      .then(([usageData, documentData, memberData]) => {
-        setUsage(usageData);
-        setDocumentCount(documentData.documents?.length ?? 0);
-        setMemberCount(memberData.members?.length ?? 0);
+      .then(([usageResponse, documentResponse, memberResponse]) => {
+        const documents = documentResponse.data.documents ?? [];
+        setUsage(usageResponse.data);
+        setDocumentCount(documents.length);
+        setMemberCount(memberResponse.data.members?.length ?? 0);
         setFailedCount(
-          documentData.documents?.filter((doc) => doc.status === "failed")
-            .length ?? 0,
+          documents.filter((doc) => doc.status === "failed").length,
         );
       })
       .catch((err) => setError(err.message));
@@ -52,7 +59,7 @@ export default function AdminPage() {
       <div className="page-heading">
         <div>
           <h1>Admin Overview</h1>
-          <p>Monitor your organization's knowledge assistant.</p>
+          <p>Monitor your organization&apos;s knowledge assistant.</p>
         </div>
       </div>
 
@@ -72,7 +79,7 @@ export default function AdminPage() {
         <Stat
           icon={<Zap size={19} />}
           label="Tokens consumed"
-          value={usage?.used ?? "—"}
+          value={usage?.usedTokens ?? "—"}
         />
         <Stat
           icon={<Activity size={19} />}
@@ -88,16 +95,16 @@ export default function AdminPage() {
             <div className="panel-row">
               <div className="row-grow">
                 <div className="row-title">
-                  {usage.used.toLocaleString()} /{" "}
-                  {usage.limit.toLocaleString()} tokens
+                  {usage.usedTokens.toLocaleString()} /{" "}
+                  {usage.monthlyLimitTokens.toLocaleString()} tokens
                 </div>
                 <div className="row-subtitle">
-                  {usage.reserved.toLocaleString()} tokens reserved
+                  {usage.reservedTokens.toLocaleString()} tokens reserved
                 </div>
               </div>
               <strong>
-                {usage.limit
-                  ? ((usage.used / usage.limit) * 100).toFixed(1)
+                {usage.monthlyLimitTokens
+                  ? ((usage.usedTokens / usage.monthlyLimitTokens) * 100).toFixed(1)
                   : "0"}
                 %
               </strong>
@@ -107,8 +114,11 @@ export default function AdminPage() {
                 className="progress-value"
                 style={{
                   width: `${
-                    usage.limit
-                      ? Math.min(100, (usage.used / usage.limit) * 100)
+                    usage.monthlyLimitTokens
+                      ? Math.min(
+                          100,
+                          (usage.usedTokens / usage.monthlyLimitTokens) * 100,
+                        )
                       : 0
                   }%`,
                 }}

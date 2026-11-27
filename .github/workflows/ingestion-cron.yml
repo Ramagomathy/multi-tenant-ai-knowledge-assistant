@@ -1,0 +1,26 @@
+name: Knowledge Assistant Ingestion
+
+on:
+  schedule:
+    - cron: "2,17,32,47 * * * *"
+  workflow_dispatch:
+
+jobs:
+  trigger-ingestion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - name: Trigger Render ingestion
+        env:
+          INGESTION_CRON_SECRET: ${{ secrets.INGESTION_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          curl --fail \
+            --silent \
+            --show-error \
+            --max-time 300 \
+            --request POST \
+            "https://multi-tenant-ai-knowledge-assistant.onrender.com/api/internal/ingestion/run" \
+            --header "Authorization: Bearer ${INGESTION_CRON_SECRET}"

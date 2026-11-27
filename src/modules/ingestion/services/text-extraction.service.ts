@@ -21,16 +21,9 @@ export async function extractDocumentText(
   try {
     if (mimeType === "application/pdf") {
       const parser = new PDFParse({ data: buffer });
-      try {
-        const [textResult, infoResult] = await Promise.all([
-          parser.getText(),
-          parser.getInfo({ parsePageInfo: true }),
-        ]);
-        text = textResult.text;
-        pageCount = infoResult.total;
-      } finally {
-        await parser.destroy();
-      }
+      const textResult = await parser.getText();
+      text = textResult.text;
+      pageCount = textResult.total;
     } else if (mimeType === "text/plain" || mimeType === "text/markdown") {
       text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
     } else {

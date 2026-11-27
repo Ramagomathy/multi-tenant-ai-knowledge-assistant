@@ -46,10 +46,12 @@ const MessageSchema = new Schema(
     },
 
     content: {
-      type: String,
-      required: true,
-      maxlength: 30000,
-    },
+  type: String,
+  required: function (this: any) {
+    return this.status === "completed";
+  },
+  maxlength: 30000,
+},
 
     status: {
       type: String,

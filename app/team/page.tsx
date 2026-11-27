@@ -1,4 +1,3 @@
-
 "use client";
 
 import { UserPlus, Users, RefreshCw } from "lucide-react";
@@ -6,8 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import AppShell from "@/components/app-shell";
 import { apiRequest } from "@/lib/client/api";
 
+type ApiResponse<T> = {
+  success: boolean;
+  data: T;
+};
+
 type Member = {
-  _id: string;
+  id: string;
   name: string;
   email: string;
   role: string;
@@ -26,11 +30,12 @@ export default function TeamPage() {
   const [message, setMessage] = useState("");
 
   const loadMembers = useCallback(async () => {
+    setError("");
     try {
-      const result = await apiRequest<{ members: Member[] }>(
+      const result = await apiRequest<ApiResponse<{ members: Member[] }>>(
         "/api/organization/members",
       );
-      setMembers(result.members ?? []);
+      setMembers(result.data?.members ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load members");
     } finally {
@@ -94,7 +99,7 @@ export default function TeamPage() {
             <div className="empty-state">No members found.</div>
           ) : (
             members.map((member) => (
-              <div className="member-row" key={member._id}>
+              <div className="member-row" key={member.id}>
                 <div className="avatar">
                   {member.name.charAt(0).toUpperCase()}
                 </div>

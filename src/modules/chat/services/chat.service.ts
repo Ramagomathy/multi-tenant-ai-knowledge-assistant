@@ -360,10 +360,14 @@ export async function prepareChat(params: {
           question: params.message,
           answer: fullResponse,
           citations,
-          model: env.GEMINI_CHAT_MODEL,
+          model: env.GROQ_CHAT_MODEL,
         });
       }
     } catch (error) {
+      console.error("[CHAT GENERATION ERROR]", {
+  message: error instanceof Error ? error.message : String(error),
+  stack: error instanceof Error ? error.stack : undefined,
+});
       const aborted = params.signal.aborted;
 
       if (!reservationProcessed) {

@@ -66,14 +66,37 @@ export class GeminiChatProvider implements ChatProvider {
     );
 
     if (!response.ok) {
-      // Do not expose provider response or API key details.
-      throw new AppError(
-        response.status === 429
-          ? "AI provider rate limit reached"
-          : "AI provider request failed",
-        response.status === 429 ? 429 : 502
-      );
-    }
+  const responseText = await response.text();
+
+  let providerError: {
+    error?: {
+      message?: string;
+      status?: string;
+      code?: number;
+    };
+  } = {};
+
+  try {
+    providerError = JSON.parse(responseText);
+  } catch {
+    // Response wasn't JSON.
+  }
+
+  console.error("[GEMINI HTTP ERROR]", {
+    status: response.status,
+    statusText: response.statusText,
+    providerCode: providerError.error?.code,
+    providerStatus: providerError.error?.status,
+    providerMessage: providerError.error?.message,
+  });
+
+  throw new AppError(
+    response.status === 429
+      ? "AI provider rate limit reached"
+      : "AI provider request failed",
+    response.status === 429 ? 429 : 502
+  );
+}
 
     if (!response.body) {
       throw new AppError("AI provider returned an empty stream", 502);
@@ -121,11 +144,13 @@ export class GeminiChatProvider implements ChatProvider {
           if (!event) continue;
 
           if (event.event_type === "error") {
-            throw new AppError(
-              "AI generation failed",
-              502
-            );
-          }
+  console.error("[GEMINI STREAM ERROR]", {
+    code: event.error?.code,
+    message: event.error?.message,
+  });
+
+  throw new AppError("AI generation failed", 502);
+}
 
           if (
             event.event_type === "step.delta" &&

@@ -1,3 +1,4 @@
+console.log("🔥 CHAT ROUTE MODULE LOADED - ORIGINAL VERSION");
 import { NextRequest } from "next/server";
 
 import { requireAuth } from "@/modules/auth/utils/auth";
@@ -6,56 +7,75 @@ import { handleApiError } from "@/lib/errors";
 
 import { chatSchema } from "@/modules/chat/schemas/chat.schema";
 import { prepareChat } from "@/modules/chat/services/chat.service";
-
-import Message from "@/modules/chat/models/Message";
 import { consumeChatRateLimit } from "@/modules/usage/services/chat-rate-limit.service";
 
-function createSSEStream(params: {
+type StreamChunk =
+  | { type: "text"; text: string }
+  | {
+      type: "usage";
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    };
+
+interface CreateSSEStreamParams {
   conversationId: string;
   assistantMessageId: string;
   citations: unknown[];
-  stream: AsyncGenerator<any>;
+  stream: AsyncGenerator<StreamChunk>;
   signal: AbortSignal;
   abortController: AbortController;
-}) {
+  onCleanup?: () => void;
+}
+
+const SSE_HEADERS: HeadersInit = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+function createSSEStream({
+  conversationId,
+  assistantMessageId,
+  citations,
+  stream,
+  signal,
+  abortController,
+  onCleanup,
+}: CreateSSEStreamParams): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
 
-  return new ReadableStream({
+  return new ReadableStream<Uint8Array>({
     async start(controller) {
+      let isClosed = false;
+
       const send = (event: string, data: unknown) => {
-        controller.enqueue(
-          encoder.encode(
-            `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-          )
-        );
+        if (isClosed) return;
+        try {
+          controller.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          );
+        } catch {
+          isClosed = true;
+        }
       };
 
       let fullText = "";
 
       try {
-        send("meta", {
-          conversationId: params.conversationId,
-          assistantMessageId: params.assistantMessageId,
-        });
+        send("meta", { conversationId, assistantMessageId });
+        send("citations", { citations });
 
-        send("citations", {
-          citations: params.citations,
-        });
-
-        for await (const item of params.stream) {
-          if (params.signal.aborted) {
+        for await (const item of stream) {
+          if (signal.aborted) {
             throw new Error("CANCELLED");
           }
 
           if (item.type === "text") {
             fullText += item.text;
-
-            send("token", {
-              text: item.text,
-            });
-          }
-
-          if (item.type === "usage") {
+            send("token", { text: item.text });
+          } else if (item.type === "usage") {
             send("usage", {
               inputTokens: item.inputTokens,
               outputTokens: item.outputTokens,
@@ -64,84 +84,107 @@ function createSSEStream(params: {
           }
         }
 
-        send("done", {
-          conversationId: params.conversationId,
-          assistantMessageId: params.assistantMessageId,
-        });
-      } catch (error) {
-        const cancelled = params.signal.aborted;
+        void fullText;
 
-        if (!cancelled) {
-          send("error", {
-            message: "Unable to complete the response.",
-          });
-        }
-      } finally {
-        try {
-          controller.close();
-        } catch {
-          // The client may already have disconnected.
+        send("done", { conversationId, assistantMessageId });
+      }  catch (error) {
+  console.error("[CHAT SSE ERROR]", error);
+
+  if (!signal.aborted) {
+    send("error", {
+      message: "Unable to complete the response.",
+    });
+  }
+} finally {
+        onCleanup?.();
+        if (!isClosed) {
+          isClosed = true;
+          try {
+            controller.close();
+          } catch {
+            // The client may already have disconnected.
+          }
         }
       }
     },
 
     cancel() {
-      params.abortController.abort();
+      abortController.abort();
+      onCleanup?.();
     },
   });
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    validateRequestOrigin(request);
-
-    const auth = await requireAuth();
-
-    const body = await request.json();
-    const input = chatSchema.parse(body);
-    const rateLimit = await consumeChatRateLimit({
-  organizationId: String(auth.organizationId),
-  userId: String(auth.userId),
-});
-
-if (!rateLimit.allowed) {
-  return Response.json(
-    {
-      error: "Too many chat requests. Please try again shortly.",
-    },
-    {
-      status: 429,
-      headers: {
-        "Retry-After": String(
-          Math.max(
-            1,
-            Math.ceil(
-              (rateLimit.resetAt.getTime() - Date.now()) / 1000
-            )
-          )
-        ),
-      },
-    }
-  );
+function getRetryAfterSeconds(resetAt: Date): string {
+  const remainingSeconds = Math.ceil((resetAt.getTime() - Date.now()) / 1000);
+  return String(Math.max(1, remainingSeconds));
 }
 
-    const abortController = new AbortController();
+export async function POST(request: NextRequest) {
+  console.log("🔥 ORIGINAL CHAT POST HANDLER EXECUTED");
+  let stage = "request-start";
 
-    request.signal.addEventListener(
-      "abort",
-      () => abortController.abort(),
-      { once: true }
-    );
+  try {
+    console.log("[CHAT] 1. Request received");
+    stage = "csrf-validation";
+    validateRequestOrigin(request);
+    console.log("[CHAT] 2. Origin validated");
+
+    stage = "authentication";
+    const auth = await requireAuth();
+    console.log("[CHAT] 3. Authentication successful");
+
+    stage = "request-body";
+    const body = await request.json();
+    console.log("[CHAT] 4. Request body parsed");
+
+    stage = "request-validation";
+    const input = chatSchema.parse(body);
+    console.log("[CHAT] 5. Schema validation successful");
+
+    stage = "chat-rate-limit";
+    const rateLimit = await consumeChatRateLimit({
+      organizationId: String(auth.organizationId),
+      userId: String(auth.userId),
+    });
+    console.log("[CHAT] 6. Rate limit checked", rateLimit);
+
+    if (!rateLimit.allowed) {
+      return Response.json(
+        { error: "Too many chat requests" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": getRetryAfterSeconds(rateLimit.resetAt),
+          },
+        }
+      );
+    }
+
+    stage = "abort-controller";
+    const abortController = new AbortController();
+    const handleRequestAbort = () => abortController.abort();
+    request.signal.addEventListener("abort", handleRequestAbort, { once: true });
+
+    const cleanupAbortListener = () => {
+      request.signal.removeEventListener("abort", handleRequestAbort);
+    };
+
+    stage = "prepare-chat";
+    console.log("[CHAT] 7. Calling prepareChat");
 
     const execution = await prepareChat({
-  organizationId: auth.organizationId,
-  userId: auth.userId,
-  conversationId: input.conversationId,
-  requestId: input.requestId,
-  message: input.message,
-  signal: abortController.signal,
-});
+      organizationId: auth.organizationId,
+      userId: auth.userId,
+      conversationId: input.conversationId,
+      requestId: input.requestId,
+      message: input.message,
+      signal: abortController.signal,
+    });
 
+    console.log("[CHAT] 8. prepareChat completed");
+
+    stage = "create-sse-stream";
     const stream = createSSEStream({
       conversationId: String(execution.conversationId),
       assistantMessageId: String(execution.assistantMessageId),
@@ -149,22 +192,23 @@ if (!rateLimit.allowed) {
       stream: execution.stream,
       signal: abortController.signal,
       abortController,
+      onCleanup: cleanupAbortListener,
     });
+
+    stage = "return-response";
+    console.log("[CHAT] 9. Returning SSE response");
 
     return new Response(stream, {
       status: 200,
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
+      headers: SSE_HEADERS,
     });
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "CONVERSATION_NOT_FOUND"
-    ) {
+    console.error("[CHAT API ERROR]", {
+      stage,
+      error,
+    });
+
+    if (error instanceof Error && error.message === "CONVERSATION_NOT_FOUND") {
       return Response.json(
         { error: "Conversation not found" },
         { status: 404 }

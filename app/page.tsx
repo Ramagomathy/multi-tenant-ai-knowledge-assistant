@@ -14,17 +14,22 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/app-shell";
 import { apiRequest } from "@/lib/client/api";
 
+type ApiResponse<T> = {
+  success: boolean;
+  data: T;
+};
+
 type Usage = {
-  limit?: number;
-  used?: number;
-  reserved?: number;
-  remaining?: number;
-  periodKey?: string;
+  monthlyLimitTokens: number;
+  usedTokens: number;
+  reservedTokens: number;
+  remainingTokens: number;
+  periodKey: string;
 };
 
 type DocumentItem = {
-  _id: string;
-  originalName: string;
+  id: string;
+  name: string;
   status: string;
   createdAt: string;
 };
@@ -35,23 +40,33 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let active = true;
+
     Promise.all([
-      apiRequest<Usage>("/api/usage"),
-      apiRequest<{ documents: DocumentItem[] }>("/api/documents"),
+      apiRequest<ApiResponse<Usage>>("/api/usage"),
+      apiRequest<ApiResponse<{ documents: DocumentItem[] }>>("/api/documents"),
     ])
-      .then(([usageData, documentData]) => {
-        setUsage(usageData);
-        setDocuments(documentData.documents ?? []);
+      .then(([usageResponse, documentResponse]) => {
+        if (!active) return;
+        setUsage(usageResponse.data);
+        setDocuments(documentResponse.data.documents ?? []);
       })
-      .catch((err) => setError(err.message));
+      .catch((err: Error) => {
+        if (!active) return;
+        setError(err.message);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const used = usage?.used ?? 0;
-  const limit = usage?.limit ?? 0;
-  const reserved = usage?.reserved ?? 0;
-  const remaining = usage?.remaining ?? 0;
+  const used = usage?.usedTokens ?? 0;
+  const limit = usage?.monthlyLimitTokens ?? 0;
+  const reserved = usage?.reservedTokens ?? 0;
+  const remaining = usage?.remainingTokens ?? 0;
 
-  const percentage = limit ? Math.min(100, (used / limit) * 100) : 0;
+  const percentage = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
 
   return (
     <AppShell>
@@ -99,9 +114,7 @@ export default function DashboardPage() {
             <>
               <div className="panel-row">
                 <div className="row-grow">
-                  <div className="row-title">
-                    {used.toLocaleString()} used
-                  </div>
+                  <div className="row-title">{used.toLocaleString()} used</div>
                   <div className="row-subtitle">
                     Monthly limit: {limit.toLocaleString()}
                   </div>
@@ -149,18 +162,20 @@ export default function DashboardPage() {
             </div>
           ) : (
             documents.slice(0, 5).map((document) => (
-              <div className="panel-row" key={document._id}>
-                {document.originalName.toLowerCase().endsWith(".pdf") ? (
+              <div className="panel-row" key={document.id}>
+                {document.name.toLowerCase().endsWith(".pdf") ? (
                   <File size={19} color="#dc5656" />
                 ) : (
                   <FileText size={19} color="#7c3aed" />
                 )}
+
                 <div className="row-grow">
-                  <div className="row-title">{document.originalName}</div>
+                  <div className="row-title">{document.name}</div>
                   <div className="row-subtitle">
                     {new Date(document.createdAt).toLocaleDateString()}
                   </div>
                 </div>
+
                 <span className={`status status-${document.status}`}>
                   {document.status}
                 </span>
